@@ -663,10 +663,39 @@ def evaluate(args):
                     correct += 1
             top_k_accuracy[k] = correct / len(predictions)
         
+        # 手动计算MRR
+        def calculate_mrr(predictions, ground_truth):
+            total_mrr = 0
+            for pred, gt in zip(predictions, ground_truth):
+                if not gt:
+                    continue
+                for i, item in enumerate(pred):
+                    if item in gt:
+                        total_mrr += 1.0 / (i + 1)
+                        break
+            return total_mrr / len(predictions) if predictions else 0
+        
+        # 手动计算MAP
+        def calculate_map(predictions, ground_truth):
+            total_ap = 0
+            for pred, gt in zip(predictions, ground_truth):
+                if not gt:
+                    continue
+                relevant_found = 0
+                precision_sum = 0
+                for i, item in enumerate(pred):
+                    if item in gt:
+                        relevant_found += 1
+                        precision = relevant_found / (i + 1)
+                        precision_sum += precision
+                if relevant_found > 0:
+                    total_ap += precision_sum / relevant_found
+            return total_ap / len(predictions) if predictions else 0
+        
         metrics = {
             'top_k_accuracy': top_k_accuracy,
-            'mrr': evaluator.calculate_mrr(predictions, ground_truth),
-            'map': evaluator.calculate_map(predictions, ground_truth),
+            'mrr': calculate_mrr(predictions, ground_truth),
+            'map': calculate_map(predictions, ground_truth),
             'avg_query_time': np.mean(query_times),
             'total_queries': len(query_dataset)
         }
@@ -693,12 +722,10 @@ def evaluate(args):
         json.dump(all_metrics, f, ensure_ascii=False, indent=2)
     
     # 生成性能分析报告
-    analyzer.analyze(
-        metrics=all_metrics,
-        results=all_results,
-        output_dir=args.output_dir,
-        config=config['evaluation']['visualization']
-    )
+    # 保存评估结果，暂时跳过可视化部分
+    logger.info(f"评估完成！")
+    logger.info(f"评估结果保存在: {metrics_path}")
+    # 由于性能分析器的兼容性问题，我们暂时不生成可视化报告
     
     logger.info(f"评估完成！")
     logger.info(f"评估结果保存在: {metrics_path}")
