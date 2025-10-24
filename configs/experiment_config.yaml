@@ -1,0 +1,285 @@
+# TAMMA实验配置文件
+# 多模态检索算法对比实验配置
+
+# 实验基本信息
+experiment:
+  name: "tamma_comparison_experiment"
+  description: "TAMMA算法与基线算法的对比实验"
+  seed: 42
+  num_runs: 5  # 重复实验次数
+  output_dir: "./results"
+  log_level: "INFO"
+
+# 数据集配置
+dataset:
+  name: "lost_found_dataset"
+  root_dir: "./data"
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  # 合成数据生成参数
+  generate_synthetic: true
+  synthetic_params:
+    num_samples_per_category: 300
+    image_size: [256, 256]
+    background_types: ["plain", "texture", "noise", "natural"]
+    background_ratio: [0.4, 0.3, 0.2, 0.1]
+    occlusion_levels: [0.0, 0.1, 0.2, 0.3]
+    occlusion_ratio: [0.5, 0.3, 0.15, 0.05]
+    rotation_range: [-30, 30]
+    scale_range: [0.8, 1.2]
+    # 物品类别和颜色配置
+    categories:
+      - name: "book"
+        colors: [[255, 0, 0], [0, 0, 255], [255, 255, 0], [255, 165, 0], [0, 255, 0]]
+        color_weights: [0.25, 0.25, 0.2, 0.15, 0.15]
+      - name: "wallet"
+        colors: [[0, 0, 0], [139, 69, 19], [128, 128, 128], [255, 255, 255]]
+        color_weights: [0.4, 0.3, 0.2, 0.1]
+      - name: "cup"
+        colors: [[255, 0, 0], [0, 0, 255], [255, 255, 255], [255, 165, 0], [0, 255, 0]]
+        color_weights: [0.2, 0.2, 0.2, 0.2, 0.2]
+      - name: "phone"
+        colors: [[0, 0, 0], [255, 255, 255], [128, 128, 128], [255, 193, 37]]
+        color_weights: [0.5, 0.3, 0.15, 0.05]
+      - name: "bag"
+        colors: [[0, 0, 0], [139, 69, 19], [255, 255, 255], [255, 0, 0], [0, 0, 255]]
+        color_weights: [0.3, 0.3, 0.2, 0.1, 0.1]
+      - name: "clothes"
+        colors: [[255, 0, 0], [0, 0, 255], [0, 0, 0], [255, 255, 255], [0, 255, 0], [255, 255, 0]]
+        color_weights: [0.2, 0.2, 0.15, 0.15, 0.15, 0.15]
+      - name: "shoes"
+        colors: [[0, 0, 0], [255, 255, 255], [139, 69, 19], [255, 0, 0]]
+        color_weights: [0.4, 0.3, 0.2, 0.1]
+      - name: "keys"
+        colors: [[192, 192, 192], [128, 128, 128], [255, 215, 0]]
+        color_weights: [0.6, 0.3, 0.1]
+      - name: "glasses"
+        colors: [[0, 0, 0], [128, 128, 128], [255, 255, 255]]
+        color_weights: [0.5, 0.3, 0.2]
+    # 文字生成配置
+    text_params:
+      enable_text: true
+      languages: ["zh", "en"]
+      text_ratio: 0.7
+      max_text_length: 20
+      text_positions: ["top", "bottom", "left", "right", "center"]
+      text_position_weights: [0.2, 0.2, 0.2, 0.2, 0.2]
+
+# SIFT Codebook配置
+sift_codebook:
+  enabled: true
+  codebook_size: 256
+  num_samples: 300
+  training_iterations: 100
+  n_init: 3
+  save_path: "./models/sift_codebook.pkl"
+
+# 算法配置
+algorithms:
+  # TAMMA算法配置
+  tamma:
+    name: "TAMMA"
+    enabled: true
+    module: "algorithms.tamma_complete"
+    class: "TAMMAComplete"
+    params:
+      # 特征提取配置
+      feature_extraction:
+        color:
+          enabled: true
+          color_space: "hsv"
+          bins: 8
+          spatial_pyramid_levels: 2
+          normalize: true
+        texture:
+          enabled: true
+          texture_type: "lbp"
+          grid_size: 8
+          normalize: true
+        text:
+          enabled: true
+          use_ocr: true
+          text_embedding: "tfidf"
+          normalize: true
+        sift:
+          enabled: true
+          n_features: 200
+          normalize: true
+      # 类别特定权重
+      category_weights:
+        book: {color: 0.2, texture: 0.1, text: 0.5, sift: 0.2}
+        wallet: {color: 0.3, texture: 0.3, text: 0.1, sift: 0.3}
+        cup: {color: 0.4, texture: 0.2, text: 0.2, sift: 0.2}
+        phone: {color: 0.3, texture: 0.2, text: 0.1, sift: 0.4}
+        bag: {color: 0.3, texture: 0.3, text: 0.1, sift: 0.3}
+        clothes: {color: 0.4, texture: 0.3, text: 0.1, sift: 0.2}
+        shoes: {color: 0.3, texture: 0.3, text: 0.1, sift: 0.3}
+        keys: {color: 0.2, texture: 0.4, text: 0.1, sift: 0.3}
+        glasses: {color: 0.2, texture: 0.3, text: 0.1, sift: 0.4}
+      # 三级匹配配置
+      matching:
+        color_threshold: 0.5
+        spatial_threshold: 0.3
+        final_threshold: 0.6
+        k_neighbors: 100
+        similarity_metric: "euclidean"
+      # 融合配置
+      fusion:
+        method: "weighted_sum"
+        default_weights: {color: 0.3, texture: 0.2, text: 0.3, sift: 0.2}
+      # 性能优化配置
+      performance:
+        use_gpu: false
+        batch_size: 32
+        index_type: "flat"
+
+  # 基线算法1: 仅颜色特征
+  color_only:
+    name: "Color-Only"
+    enabled: true
+    module: "algorithms.baselines.color_only_matcher"
+    class: "ColorOnlyMatcherComplete"
+    params:
+      color_space: "hsv"
+      bins: 8
+      spatial_pyramid_levels: 2
+      normalize: true
+      similarity_metric: "euclidean"
+      batch_size: 32
+
+  # 基线算法2: 颜色+SIFT双模态
+  dual_modality:
+    name: "Color+SIFT"
+    enabled: true
+    module: "algorithms.baselines.dual_modality_matcher"
+    class: "DualModalityMatcherComplete"
+    params:
+      color_space: "hsv"
+      color_bins: 8
+      sift_n_features: 200
+      fusion_method: "weighted_sum"
+      weights: {color: 0.5, sift: 0.5}
+      similarity_metric: "euclidean"
+      batch_size: 32
+
+  # 基线算法3: 固定权重多模态
+  fixed_weight_multimodal:
+    name: "Fixed-Weight-MM"
+    enabled: true
+    module: "algorithms.baselines.fixed_weight_multimodal_matcher"
+    class: "FixedWeightMultimodalMatcherComplete"
+    params:
+      color_space: "hsv"
+      color_bins: 8
+      texture_type: "lbp"
+      text_embedding: "tfidf"
+      sift_n_features: 200
+      fusion_method: "weighted_sum"
+      weights: {color: 0.25, texture: 0.25, text: 0.25, sift: 0.25}
+      similarity_metric: "euclidean"
+      batch_size: 32
+
+  # 基线算法4: 深度学习特征
+  deep_learning:
+    name: "Deep-Learning"
+    enabled: true
+    module: "algorithms.baselines.deep_learning_matcher"
+    class: "DeepLearningMatcherComplete"
+    params:
+      model_name: "resnet50"
+      pretrained: true
+      feature_dim: 2048
+      normalize: true
+      similarity_metric: "cosine"
+      batch_size: 32
+      use_gpu: false
+
+# 评估配置
+evaluation:
+  metrics:
+    - name: "top_k_accuracy"
+      k_values: [1, 5, 10, 20]
+    - name: "mrr"
+      max_rank: 100
+    - name: "map"
+      max_rank: 100
+    - name: "ndcg"
+      k_values: [1, 5, 10]
+  # 统计检验配置
+  statistical_test:
+    enabled: true
+    method: "paired_t_test"
+    significance_level: 0.05
+    compare_baselines: true
+  # 可视化配置
+  visualization:
+    enabled: true
+    show_plots: false
+    save_figures: true
+    figure_dir: "./results/figures"
+    dpi: 300
+    figsize: [12, 8]
+    # 图表类型
+    plot_types:
+      - "accuracy_comparison"
+      - "speed_comparison"
+      - "difficulty_analysis"
+      - "recall_curve"
+      - "mrr_comparison"
+      - "time_accuracy_tradeoff"
+      - "radar_chart"
+      - "box_plot"
+
+# 实验流程配置
+workflow:
+  # 步骤配置，true表示执行该步骤
+  steps:
+    prepare_codebook: true  # 准备SIFT codebook
+    generate_dataset: true  # 生成数据集
+    train_models: false  # 训练模型（深度学习方法）
+    extract_features: true  # 提取特征
+    build_indexes: true  # 构建索引
+    run_evaluation: true  # 运行评估
+    compare_algorithms: true  # 比较算法
+    generate_report: true  # 生成报告
+  # 并行配置
+  parallel:
+    enabled: false
+    num_workers: 4
+  # 缓存配置
+  cache:
+    enabled: true
+    cache_dir: "./results/cache"
+    use_cache: true
+    clear_cache: false
+
+# 资源配置
+resources:
+  memory_limit: "8GB"
+  cpu_limit: 4
+  gpu_ids: []  # 空列表表示不使用GPU
+  log_dir: "./results/logs"
+
+# 报告配置
+report:
+  enabled: true
+  format: "html"
+  output_path: "./results/reports/experiment_report.html"
+  include_plots: true
+  include_tables: true
+  include_statistics: true
+  # 报告标题和作者
+  title: "TAMMA多模态检索算法实验报告"
+  authors: ["多模态检索算法工程师"]
+  date_format: "%Y-%m-%d"
+
+# 监控配置
+monitoring:
+  enabled: true
+  log_interval: 100
+  progress_bar: true
+  # 性能监控
+  track_performance: true
+  measure_time: true
+  measure_memory: false

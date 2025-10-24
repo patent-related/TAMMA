@@ -1,0 +1,58 @@
+# 核心依赖
+numpy==1.26.4  # 与FAISS兼容的稳定版本
+scipy>=1.8.0
+opencv-python>=4.6.0
+scikit-learn>=1.1.0
+pandas>=1.5.0
+matplotlib>=3.5.0
+pillow>=9.0.0
+pyyaml>=6.0
+seaborn>=0.13.2
+
+# 深度学习 - 支持CUDA 12.8的版本
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.28.0
+
+# OCR
+paddlepaddle>=2.4.0
+# 降级paddleocr以兼容Python 3.9的类型注解
+paddleocr==2.6.1.3
+
+# 向量检索 - 启用GPU版本
+# faiss-cpu==1.7.2  # CPU版本
+faiss-gpu==1.7.2  # GPU版本
+
+# 图像处理增强
+albumentations>=1.3.0
+imgaug>=0.4.0
+
+# 性能监控
+psutil>=5.9.0
+tqdm>=4.65.0
+
+# 文字处理
+jieba>=0.42.1
+nltk>=3.8.0
+
+# 序列化
+pickle5>=0.0.11
+
+# 日志
+logging_tree>=1.9
+
+# 科学计算
+sympy>=1.10.0
+
+# GPU加速相关 - 支持CUDA 12.x
+cupy-cuda12x>=11.0.0  # CUDA 12.x 版本，兼容Python 3.9
+# cudf和cuml暂时注释，安装时根据需要手动添加
+# cudf-cu12>=23.06.0  # GPU DataFrame库，兼容Python 3.9
+# cuml-cu12>=23.06.0  # GPU机器学习库，用于K-means等算法，兼容Python 3.9
+
+# 路径处理
+pathlib>=1.0.0
+
+# 确保与Python 3.9兼容
+pip>=22.0
+setuptools>=60.0
