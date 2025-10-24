@@ -727,9 +727,20 @@ def evaluate(args):
     logger.info(f"评估结果保存在: {metrics_path}")
     # 由于性能分析器的兼容性问题，我们暂时不生成可视化报告
     
-    logger.info(f"评估完成！")
-    logger.info(f"评估结果保存在: {metrics_path}")
-    logger.info(f"可视化图表保存在: {os.path.join(args.output_dir, 'figures')}")
+    # 导入可视化工具
+    from utils.visualization_utils import visualize_metrics
+    
+    # 生成可视化报告
+    logger.info("开始生成可视化报告...")
+    try:
+        visualization_dir = os.path.join(args.output_dir, 'visualizations')
+        html_report_path = visualize_metrics(metrics_path, visualization_dir)
+        logger.info(f"可视化报告生成成功！")
+        logger.info(f"HTML报告路径: {html_report_path}")
+        logger.info(f"所有图表已保存到: {visualization_dir}")
+    except Exception as e:
+        logger.error(f"生成可视化报告时出错: {str(e)}")
+        logger.info(f"评估结果仍已保存到: {metrics_path}")
 
 
 def run_experiment(args):
