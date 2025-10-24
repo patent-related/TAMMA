@@ -146,6 +146,10 @@ class DeepLearningMatcherComplete:
         Returns:
             预处理后的张量
         """
+        # 确保image是numpy数组而不是列表
+        if isinstance(image, list):
+            raise ValueError("Image should be numpy array, not list")
+        
         # 转换为RGB格式
         if len(image.shape) == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
@@ -661,3 +665,129 @@ class DeepLearningMatcherComplete:
             'embedding_layer': self.embedding_layer,
             'resize_size': self.resize_size
         }
+    
+    def build_index(self, gallery_dataset):
+        """构建检索索引
+        
+        Args:
+            gallery_dataset: 图库数据集，包含图像路径
+        """
+        logger.info(f"开始构建深度学习模型索引，图库大小: {len(gallery_dataset)}")
+        
+        # 存储图库信息
+        self.gallery_dataset = gallery_dataset
+        self.gallery_features = []
+        self.valid_indices = []  # 记录有效的索引
+        
+        # 提取图库特征
+        valid_images = []
+        valid_items = []
+        
+        # 遍历图库数据集
+        for i, item in enumerate(gallery_dataset):
+            try:
+                # 获取图像路径
+                if isinstance(item, str):
+                    # 直接是图像路径
+                    image_path = item
+                elif isinstance(item, tuple):
+                    # (路径, 标签)格式
+                    image_path = item[0]
+                elif isinstance(item, dict):
+                    # 字典格式，需要有image_path键
+                    image_path = item.get('image_path')
+                    if image_path is None:
+                        logger.warning(f"字典格式数据缺少image_path键: {item}")
+                        continue
+                else:
+                    logger.warning(f"不支持的数据格式: {type(item)}")
+                    continue
+                
+                # 读取图像
+                image = cv2.imread(image_path)
+                if image is None:
+                    logger.warning(f"无法读取图像: {image_path}")
+                    continue
+                
+                # 确保图像是numpy数组
+                if not isinstance(image, np.ndarray):
+                    logger.warning(f"图像不是numpy数组格式: {image_path}")
+                    continue
+                
+                # 保存有效图像和对应的索引
+                valid_images.append(image)
+                valid_items.append(item)
+                self.valid_indices.append(i)
+                
+            except Exception as e:
+                logger.error(f"处理图库项 {i} 时出错: {str(e)}")
+        
+        # 批量提取特征
+        if valid_images:
+            # 提取特征
+            self.gallery_features = self.extract_features_batch(valid_images)
+            
+            # 更新图库数据集，只保留有效的项
+            # 注意：这会改变原始图库数据集的索引映射
+            # 因此我们需要维护valid_indices来记录原始索引
+            self.valid_gallery_items = valid_items
+        
+        logger.info(f"索引构建完成，成功处理 {len(valid_images)} 个图像，" 
+                   f"有效索引数: {len(self.valid_indices)}, "
+                   f"提取特征数: {len(self.gallery_features)}")
+        
+        # 验证数据一致性
+        if len(self.gallery_features) != len(self.valid_indices):
+            logger.warning(f"特征数量与有效索引数量不匹配: {len(self.gallery_features)} vs {len(self.valid_indices)}")
+    
+    def search(self, query_image_path: str, category: Optional[str] = None, k: int = 10) -> List[Dict]:
+        """
+        执行图像检索
+        
+        Args:
+            query_image_path: 查询图像路径
+            category: 类别（可选）
+            k: 返回前k个结果
+            
+        Returns:
+            排序后的检索结果列表
+        """
+        # 读取查询图像
+        query_image = cv2.imread(query_image_path)
+        if query_image is None:
+            logger.error(f"无法读取查询图像: {query_image_path}")
+            return []
+        
+        # 确保是numpy数组
+        if not isinstance(query_image, np.ndarray):
+            logger.error(f"查询图像不是numpy数组格式")
+            return []
+        
+        # 提取查询特征 - 直接传递单个图像而不是列表
+        query_feature = self.extract_features(query_image)
+        
+        # 执行匹配
+        matches = self.match(query_feature, self.gallery_features, top_k=k)
+        
+        # 构建结果
+        results = []
+        for i, (idx, similarity) in enumerate(matches):
+            # 获取对应的图库项
+            if 0 <= idx < len(self.valid_indices):
+                gallery_item = self.gallery_dataset[self.valid_indices[idx]]
+                
+                # 构建结果
+                result = {
+                    'index': self.valid_indices[idx],  # 添加原始索引
+                    'rank': i + 1,
+                    'score': float(similarity),
+                    'image_path': gallery_item if isinstance(gallery_item, str) else gallery_item.get('image_path', '')
+                }
+                
+                # 如果gallery_item是字典，添加其他信息
+                if isinstance(gallery_item, dict):
+                    result.update(gallery_item)
+                
+                results.append(result)
+        
+        return results

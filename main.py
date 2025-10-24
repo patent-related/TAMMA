@@ -589,35 +589,153 @@ def evaluate(args):
         # 初始化模型
         if model_name == 'tamma':
             tamma_config = config['algorithms']['tamma']['params']
+            
+            # 转换颜色特征提取器配置
+            def convert_color_config(color_dict):
+                if color_dict is None:
+                    return {}
+                # 过滤掉不支持的参数
+                exclude_params = ['enabled', 'normalize', 'batch_size']
+                result = {k: v for k, v in color_dict.items() if k not in exclude_params}
+                # 将单一的bins转换为h_bins, s_bins, v_bins
+                if 'bins' in result:
+                    bins = result.pop('bins')
+                    result['h_bins'] = bins
+                    result['s_bins'] = bins
+                    result['v_bins'] = bins
+                # 转换空间金字塔参数
+                if 'spatial_pyramid_levels' in result:
+                    result['use_spatial_pyramid'] = True
+                    result['pyramid_levels'] = result.pop('spatial_pyramid_levels')
+                return result
+            
+            # 转换纹理特征提取器配置
+            def convert_texture_config(texture_dict):
+                if texture_dict is None:
+                    return {}
+                exclude_params = ['enabled', 'normalize', 'grid_size']
+                result = {k: v for k, v in texture_dict.items() if k not in exclude_params}
+                # 转换texture_type为feature_types列表
+                if 'texture_type' in result:
+                    texture_type = result.pop('texture_type')
+                    result['feature_types'] = [texture_type]  # 转换为列表
+                return result
+            
+            # 过滤其他特征提取器配置中的不需要参数
+            def filter_config(config_dict):
+                if config_dict is None:
+                    return {}
+                exclude_params = ['enabled', 'normalize', 'use_ocr', 'text_embedding']
+                return {k: v for k, v in config_dict.items() if k not in exclude_params}
+            
             model = TAMMAComplete(
-                color_config=tamma_config.get('color_config'),
-                sift_config=tamma_config.get('sift_config'),
-                texture_config=tamma_config.get('texture_config'),
-                text_config=tamma_config.get('text_config'),
+                color_config=convert_color_config(tamma_config.get('feature_extraction', {}).get('color')),
+                sift_config=filter_config(tamma_config.get('feature_extraction', {}).get('sift')),
+                texture_config=convert_texture_config(tamma_config.get('feature_extraction', {}).get('texture')),
+                text_config=filter_config(tamma_config.get('feature_extraction', {}).get('text')),
                 category_weights=tamma_config.get('category_weights'),
-                color_threshold=tamma_config.get('color_threshold', 0.5),
-                top_k_coarse=tamma_config.get('top_k_coarse', 50),
-                spatial_weight=tamma_config.get('spatial_weight', 0.3),
-                temporal_weight=tamma_config.get('temporal_weight', 0.2),
-                fusion_method=tamma_config.get('fusion_method', 'weighted_sum'),
+                color_threshold=tamma_config.get('matching', {}).get('color_threshold', 0.5),
+                top_k_coarse=tamma_config.get('matching', {}).get('k_neighbors', 50),
+                spatial_weight=tamma_config.get('matching', {}).get('spatial_threshold', 0.3),
+                temporal_weight=0.2,  # 默认值
+                fusion_method=tamma_config.get('fusion', {}).get('method', 'weighted_sum'),
                 use_gpu=hasattr(args, 'use_gpu') and args.use_gpu,
-                gpu_device=hasattr(args, 'gpu_device') and args.gpu_device
+                gpu_device=0  # 默认设备ID
             )
             # 加载SIFT码本
             if hasattr(model, 'sift_extractor') and hasattr(model.sift_extractor, 'load_codebook'):
                 model.sift_extractor.load_codebook(config['sift_codebook']['save_path'])
         elif model_name == 'color_only':
             color_config = config['algorithms']['color_only']['params']
-            model = ColorOnlyMatcherComplete(**color_config)
+            # 过滤不需要的参数
+            exclude_params = ['similarity_metric', 'batch_size']
+            color_config_filtered = {k: v for k, v in color_config.items() if k not in exclude_params}
+            # 直接使用color_config_filtered，ColorOnlyMatcherComplete内部会处理bins参数
+            model = ColorOnlyMatcherComplete(**color_config_filtered)
         elif model_name == 'dual_modality':
             dual_config = config['algorithms']['dual_modality']['params']
-            model = DualModalityMatcherComplete(**dual_config)
+            # 构建正确的配置结构
+            # 提取颜色相关配置
+            color_config = {
+                'color_space': dual_config.get('color_space', 'hsv'),
+                'h_bins': dual_config.get('h_bins', 8),
+                's_bins': dual_config.get('s_bins', 8),
+                'v_bins': dual_config.get('v_bins', 8),
+                'pyramid_levels': dual_config.get('spatial_pyramid_levels', 2),
+                'use_spatial_pyramid': dual_config.get('spatial_pyramid_levels', 2) > 0
+            }
+            # 提取SIFT相关配置
+            sift_config = {
+                'n_features': dual_config.get('sift_n_features', 0),
+                'n_octave_layers': dual_config.get('sift_n_octave_layers', 3),
+                'contrast_threshold': dual_config.get('sift_contrast_threshold', 0.04),
+                'edge_threshold': dual_config.get('sift_edge_threshold', 10),
+                'sigma': dual_config.get('sift_sigma', 1.6)
+            }
+            # 构建模型参数
+            model_params = {
+                'color_config': color_config,
+                'sift_config': sift_config,
+                'color_weight': dual_config.get('color_weight', 0.5),
+                'sift_weight': dual_config.get('sift_weight', 0.5),
+                'fusion_method': dual_config.get('fusion_method', 'weighted_sum')
+            }
+            model = DualModalityMatcherComplete(**model_params)
         elif model_name == 'fixed_weight_multimodal':
             fixed_config = config['algorithms']['fixed_weight_multimodal']['params']
-            model = FixedWeightMultimodalMatcherComplete(**fixed_config)
+            # 构建正确的配置结构
+            # 提取颜色相关配置
+            color_config = {
+                'color_space': fixed_config.get('color_space', 'hsv'),
+                'h_bins': fixed_config.get('h_bins', 8),
+                's_bins': fixed_config.get('s_bins', 8),
+                'v_bins': fixed_config.get('v_bins', 8),
+                'pyramid_levels': fixed_config.get('spatial_pyramid_levels', 2),
+                'use_spatial_pyramid': fixed_config.get('spatial_pyramid_levels', 2) > 0
+            }
+            # 提取SIFT相关配置
+            sift_config = {
+                'n_features': fixed_config.get('sift_n_features', 0),
+                'n_octave_layers': fixed_config.get('sift_n_octave_layers', 3),
+                'contrast_threshold': fixed_config.get('sift_contrast_threshold', 0.04),
+                'edge_threshold': fixed_config.get('sift_edge_threshold', 10),
+                'sigma': fixed_config.get('sift_sigma', 1.6)
+            }
+            # 提取纹理相关配置
+            texture_config = {
+                'feature_types': fixed_config.get('texture_feature_types', ['glcm']),
+                'glcm_distances': fixed_config.get('glcm_distances', [1]),
+                'glcm_angles': fixed_config.get('glcm_angles', [0, np.pi/4, np.pi/2, 3*np.pi/4])
+                # TextureFeatureExtractor不需要glcm_properties参数
+            }
+            # 提取文本相关配置（根据TextFeatureExtractor的参数要求）
+            text_config = {
+                'lang': fixed_config.get('text_lang', 'ch'),
+                'use_gpu': fixed_config.get('text_use_gpu', False)
+            }
+            # 构建权重配置
+            weights = {
+                'color': fixed_config.get('color_weight', 0.25),
+                'sift': fixed_config.get('sift_weight', 0.25),
+                'texture': fixed_config.get('texture_weight', 0.25),
+                'text': fixed_config.get('text_weight', 0.25)
+            }
+            # 构建模型参数
+            model_params = {
+                'color_config': color_config,
+                'sift_config': sift_config,
+                'texture_config': texture_config,
+                'text_config': text_config,
+                'weights': weights,
+                'fusion_method': fixed_config.get('fusion_method', 'weighted_sum')
+            }
+            model = FixedWeightMultimodalMatcherComplete(**model_params)
         elif model_name == 'deep_learning':
             dl_config = config['algorithms']['deep_learning']['params']
-            model = DeepLearningMatcherComplete(**dl_config)
+            # 过滤掉不支持的参数
+            exclude_params = ['normalize', 'similarity_metric']
+            dl_config_filtered = {k: v for k, v in dl_config.items() if k not in exclude_params}
+            model = DeepLearningMatcherComplete(**dl_config_filtered)
         else:
             logger.warning(f"跳过不支持的模型: {model_name}")
             continue
@@ -774,14 +892,27 @@ def run_experiment(args):
     # 运行实验
     # 这里需要适配ExperimentManager的方法，检查它是否有run方法或其他运行实验的方法
     if hasattr(experiment_manager, 'run_comparison_experiment'):
-        # 需要准备algorithms和dataset参数
-        # 这里简化处理，从配置中提取算法信息
+        # 从配置中正确提取算法信息
         algorithms = []
+        for algo_name, algo_config in config['algorithms'].items():
+            if algo_config.get('enabled', True):
+                # 直接将算法名称字符串添加到算法列表中
+                algorithms.append(algo_name)
+                logger.info(f"添加算法: {algo_name}")
+        
+        logger.info(f"已添加 {len(algorithms)} 个算法进行对比实验")
+        
+        # 从配置中提取数据集信息
         dataset = {
-            'name': 'synthetic_dataset',
-            'root_dir': './data/synthetic'
+            'name': config['dataset']['name'],
+            'root_dir': config['dataset']['root_dir']
         }
+        
+        # 从配置中提取评估指标
         metrics = [metric['name'] for metric in config['evaluation']['metrics']]
+        
+        logger.info(f"准备运行对比实验: {len(algorithms)}个算法, 数据集={dataset['name']}, 运行轮数={config['experiment']['num_runs']}")
+        logger.info(f"启用的算法: {algorithms}")
         
         # 尝试运行对比实验
         results = experiment_manager.run_comparison_experiment(

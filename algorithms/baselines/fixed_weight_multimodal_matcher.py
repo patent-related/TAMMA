@@ -103,6 +103,111 @@ class FixedWeightMultimodalMatcherComplete:
         
         return features
     
+    def build_index(self, gallery_dataset):
+        """
+        构建图库索引
+        
+        Args:
+            gallery_dataset: 图库数据集
+        """
+        logger.info(f"构建图库索引，数据集大小: {len(gallery_dataset)}")
+        
+        self.gallery_features_list = []
+        
+        for i, item in enumerate(gallery_dataset):
+            if (i + 1) % 10 == 0:
+                logger.info(f"处理图库图像 {i+1}/{len(gallery_dataset)}")
+            
+            # 尝试多种方式获取图像数据
+            image = None
+            try:
+                if isinstance(item, dict):
+                    # 尝试常见的图像键名
+                    for key in ['image', 'img', 'data', 'image_data']:
+                        if key in item and isinstance(item[key], np.ndarray):
+                            image = item[key]
+                            break
+                    # 如果找不到图像，尝试第一个numpy数组值
+                    if image is None:
+                        for value in item.values():
+                            if isinstance(value, np.ndarray):
+                                image = value
+                                break
+                elif isinstance(item, tuple) and len(item) > 0:
+                    # 如果是元组，假设第一个元素是图像
+                    image = item[0]
+                elif isinstance(item, np.ndarray):
+                    # 直接是numpy数组
+                    image = item
+            except Exception as e:
+                logger.warning(f"处理项 {i} 时出错: {str(e)}")
+            
+            if image is None or not isinstance(image, np.ndarray):
+                logger.warning(f"无法从项 {i} 中提取图像数据，跳过")
+                continue
+            
+            # 提取特征
+            features = self.extract_features(
+                image=image,
+                image_id=str(i)
+            )
+            self.gallery_features_list.append(features)
+        
+        logger.info(f"图库索引构建完成，成功处理 {len(self.gallery_features_list)} 个图像")
+    
+    def search(self, query_image_path=None, category=None, k=10):
+        """
+        搜索相似图像
+        
+        Args:
+            query_image_path: 查询图像的路径
+            category: 查询图像的类别（可选）
+            k: 返回前k个结果
+            
+        Returns:
+            排序后的搜索结果列表
+        """
+        logger.info(f"执行搜索，k={k}")
+        
+        # 处理查询图像
+        query_feature = None
+        try:
+            # 使用image_path加载图像
+            if query_image_path:
+                # 读取图像
+                query_image = cv2.imread(query_image_path)
+                if query_image is None:
+                    logger.warning(f"无法读取图像: {query_image_path}")
+                    return []
+                
+                # 提取特征
+                query_feature = self.extract_features(query_image)
+            
+            if query_feature is None:
+                logger.warning("无法从查询图像中提取特征")
+                return []
+                
+        except Exception as e:
+            logger.error(f"提取查询图像特征时出错: {str(e)}")
+            return []
+        
+        # 批量匹配
+        matches = self.batch_match([query_feature], self.gallery_features_list, k)
+        
+        # 构建搜索结果
+        results = []
+        if matches and len(matches) > 0:
+            for idx, score in matches[0]:
+                results.append({
+                    'index': int(idx),
+                    'score': float(score)
+                })
+        
+        # 确保结果按分数降序排序
+        results.sort(key=lambda x: x['score'], reverse=True)
+        
+        return results[:k]
+    
     def match(self, 
              query_features: Dict,
              gallery_features_list: List[Dict],

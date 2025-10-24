@@ -29,11 +29,21 @@ class ColorOnlyMatcherComplete:
             normalize: 是否归一化特征
         """
         # 初始化颜色特征提取器
+        # 确保bins是一个三元组
+        if isinstance(bins, int):
+            h_bins = s_bins = v_bins = bins
+        elif isinstance(bins, tuple) and len(bins) == 3:
+            h_bins, s_bins, v_bins = bins
+        else:
+            raise ValueError(f"bins参数必须是整数或三元组，得到: {type(bins)}")
+        
         self.color_extractor = ColorFeatureExtractor(
             color_space=color_space,
-            bins=bins,
-            spatial_pyramid_levels=spatial_pyramid_levels,
-            normalize=normalize
+            h_bins=h_bins,
+            s_bins=s_bins,
+            v_bins=v_bins,
+            pyramid_levels=spatial_pyramid_levels,
+            use_spatial_pyramid=spatial_pyramid_levels > 0
         )
         
         self.similarity_method = similarity_method
@@ -254,18 +264,117 @@ class ColorOnlyMatcherComplete:
         
         return results
     
+    def build_index(self, gallery_dataset):
+        """
+        为评估流程构建索引
+
+        Args:
+            gallery_dataset: 图库数据集
+        """
+        logger.info(f"为 {len(gallery_dataset)} 个图库图像构建索引")
+        
+        # 提取所有图库图像的特征
+        self.gallery_features_list = []
+        for i, item in enumerate(gallery_dataset):
+            if (i + 1) % 50 == 0:
+                logger.info(f"处理图库图像 {i+1}/{len(gallery_dataset)}")
+            
+            # 尝试多种方式获取图像数据
+            image = None
+            if isinstance(item, dict):
+                # 尝试常见的图像键名
+                for key in ['image', 'img', 'data', 'image_data']:
+                    if key in item and isinstance(item[key], np.ndarray):
+                        image = item[key]
+                        break
+                # 如果找不到图像，尝试第一个numpy数组值
+                if image is None:
+                    for value in item.values():
+                        if isinstance(value, np.ndarray):
+                            image = value
+                            break
+            elif isinstance(item, tuple) and len(item) > 0:
+                # 如果是元组，假设第一个元素是图像
+                image = item[0]
+            
+            if image is None or not isinstance(image, np.ndarray):
+                logger.warning(f"无法从项 {i} 中提取图像数据，跳过")
+                continue
+            
+            # 提取特征
+            features = self.extract_features(
+                image=image,
+                image_id=str(i)
+            )
+            self.gallery_features_list.append(features)
+        
+        logger.info(f"图库索引构建完成，成功处理 {len(self.gallery_features_list)} 个图像")
+    
+    def search(self, query_image_path=None, category=None, k=10):
+        """
+        搜索相似图像
+
+        Args:
+            query_image_path: 查询图像的路径
+            category: 查询图像的类别（可选）
+            k: 返回前k个结果
+
+        Returns:
+            排序后的搜索结果列表
+        """
+        logger.info(f"执行搜索，k={k}")
+        
+        # 处理查询图像
+        query_feature = None
+        try:
+            # 使用image_path加载图像
+            if query_image_path:
+                # 读取图像
+                query_image = cv2.imread(query_image_path)
+                if query_image is None:
+                    logger.warning(f"无法读取图像: {query_image_path}")
+                    return []
+                
+                # 提取特征
+                query_feature = self.extract_features(query_image)
+            
+            if query_feature is None:
+                logger.warning("无法从查询图像中提取特征")
+                return []
+                
+        except Exception as e:
+            logger.error(f"提取查询图像特征时出错: {str(e)}")
+            return []
+        
+        # 批量匹配
+        matches = self.batch_match([query_feature], self.gallery_features_list, k)
+        
+        # 构建搜索结果
+        results = []
+        if matches and len(matches) > 0:
+            for idx, score in matches[0]:
+                results.append({
+                    'index': int(idx),
+                    'score': float(score)
+                })
+        
+        # 确保结果按分数降序排序
+        results.sort(key=lambda x: x['score'], reverse=True)
+        
+        return results[:k]
+    
     def optimize_parameters(self,
                           query_features_list: List[Dict],
                           gallery_features_list: List[Dict],
                           ground_truth_indices_list: List[List[int]]) -> Dict:
         """
         优化参数配置
-        
+
         Args:
             query_features_list: 查询特征列表
             gallery_features_list: 图库特征列表
             ground_truth_indices_list: 每个查询的真实正样本索引列表
-            
+
         Returns:
             最佳参数配置
         """
